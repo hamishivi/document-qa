@@ -218,7 +218,7 @@ class Attention(ParagraphQuestionModel):
             else:
                 return self.predictor.apply(is_train, context_rep, answer, context_mask)
 
-class Attention(ParagraphQuestionModel):
+class MacAttention(ParagraphQuestionModel):
     """
     Model that encodes the question and context, then applies an attention mechanism
     between the two to produce a query-aware context representation, which is used to make a prediction.
@@ -240,7 +240,7 @@ class Attention(ParagraphQuestionModel):
         self.question_mapper = question_mapper
         self.context_mapper = context_mapper
         self.memory_builder = memory_builder
-        self.attention = attention
+        self.mac = mac
         self.match_encoder = match_encoder
         self.predictor = predictor
 

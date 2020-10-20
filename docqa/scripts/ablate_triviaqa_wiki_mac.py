@@ -13,7 +13,7 @@ from docqa.data_processing.preprocessed_corpus import PreprocessedData
 from docqa.data_processing.qa_training_data import ContextLenBucketedKey
 from docqa.dataset import ClusteredBatcher
 from docqa.evaluator import LossEvaluator, MultiParagraphSpanEvaluator
-from docqa.text_preprocessor import WithIndicators
+from docqa.text_preprocessor import WithIndicators, TextPreprocessor
 from docqa.trainer import SerializableOptimizer, TrainParams
 from docqa.triviaqa.build_span_corpus import TriviaQaOpenDataset, TriviaQaWikiDataset
 from docqa.triviaqa.training_data import ExtractMultiParagraphsPerQuestion
@@ -89,7 +89,7 @@ def get_model(char_th: int, dim: int, mode: str, preprocess: Optional[TextPrepro
         question_mapper=None,
         context_mapper=None,
         memory_builder=NullBiMapper(),
-        mac=MacNetwork(),
+        mac=MacNetwork(2, dim*2),
         match_encoder=SequenceMapperSeq(FullyConnected(dim * 2, activation="relu"),
                                         ResidualLayer(SequenceMapperSeq(
                                             VariationalDropoutLayer(0.8),

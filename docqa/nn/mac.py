@@ -8,20 +8,19 @@ from docqa.nn.ops import VERY_NEGATIVE_NUMBER, exp_mask
 from docqa.nn.attention import CtrlBiAttention
 from docqa.nn.recurrent_layers import CudnnGru
 from docqa.nn.similarity_layers import SimilarityFunction, compute_attention_mask, TriLinear
-from tensorflow.contrib.keras.python.keras.initializers import TruncatedNormal
+from tensorflow.keras.initializers import TruncatedNormal
 
 """
 A basic modified MAC Network addition, designed to slot into the best DocQA Model.
 """
 class Mac():
-    def __init__(self, is_train, hidden_dim):
+    def __init__(self, hidden_dim):
         # control
         self.control_lin = FullyConnected(hidden_dim)
         self.attn = FullyConnected(1)
         # read
-        self.mem_drop = VariationalDropoutLayer(0.85)
+        self.mem_drop = DropoutLayer(0.85)
         self.read_drop = DropoutLayer(0.85)
-        self.is_train = is_train
         self.mem_proj = FullyConnected(hidden_dim)
         self.kb_proj = FullyConnected(hidden_dim)
         self.concat = FullyConnected(hidden_dim)
@@ -36,29 +35,32 @@ class Mac():
 
     def apply(self, is_train, document, question_words, question_vec, prev_cont, position_aware_cont, prev_mem, document_mask=None, question_mask=None):
         # control unit
-        control = tf.concat([prev_cont, position_aware_cont], axis=1)
-        control_question = self.control_lin(control_question)
-        control_question = tf.expand_dims(control_question, axis=1)
-        context_prod = control_question * question_words
-        attn_weight = tf.squeeze(self.attn(context_prod), axis=-1) - 1e30 * (1 - question_mask)
-        ctrl_attn = tf.nn.softmax(attn_weight, 1)
-        attn = tf.expand_dims(ctrl_attn, axis=2)
-        next_control = tf.math.reduce_sum(attn * question_words, axis=1)
+        with tf.variable_scope("control", tf.AUTO_REUSE):
+            control = tf.concat([prev_cont, position_aware_cont], axis=1)
+            control_question = self.control_lin.apply(is_train, control)
+            control_question = tf.expand_dims(control_question, axis=1)
+            context_prod = control_question * question_words
+            attn_weight = tf.squeeze(self.attn.apply(is_train, context_prod), axis=-1) - VERY_NEGATIVE_NUMBER * (1 - tf.cast(question_mask,     context_prod.dtype))
+            ctrl_attn = tf.nn.softmax(attn_weight, 1)
+            attn = tf.expand_dims(ctrl_attn, axis=2)
+            next_control = tf.math.reduce_sum(attn * question_words, axis=1)
         # read unit
-        last_mem = self.mem_drop(is_train, prev_mem)
-        know = self.read_drop(is_train, know)
-        proj_mem = tf.expand_dims(self.mem_proj(last_mem), axis=1)
-        proj_know = self.kb_proj(know)
-        concat = self.concat2(tf.nn.elu(self.concat(tf.concat([proj_mem * proj_know, proj_know], axis=2))))
-        out = self.lin(self.bi(concat, question_words, document_mask, question_mask, ctrl_attn))
-        attn = self.read_drop(out)
-        attn = tf.squeeze(self.rattn(attn), axis=-1) - 1e10 * (1 - document_mask)
-        attn = tf.expand_dims(tf.nn.softmax(attn, 1), axis=2)
-        read = tf.math.reduce_sum(attn * know, axis=1)
+        with tf.variable_scope("read", tf.AUTO_REUSE):
+            last_mem = self.mem_drop.apply(is_train, prev_mem)
+            know = self.read_drop.apply(is_train, document)
+            proj_mem = tf.expand_dims(self.mem_proj.apply(is_train, last_mem), axis=1)
+            proj_know = self.kb_proj.apply(is_train, know)
+            concat = self.concat2.apply(is_train, tf.nn.elu(self.concat.apply(is_train, tf.concat([proj_mem * proj_know, proj_know], axis=2))   ))
+            out = self.lin.apply(is_train, self.bi.apply(is_train, concat, question_words, question_words, ctrl_attn, document_mask,    question_mask))
+            attn = self.read_drop.apply(is_train, out)
+            attn = tf.squeeze(self.rattn.apply(is_train, attn), axis=-1) - VERY_NEGATIVE_NUMBER * (1 - tf.cast(document_mask, attn.dtype))
+            attn = tf.expand_dims(tf.nn.softmax(attn, 1), axis=2)
+            read = tf.math.reduce_sum(attn * know, axis=1)
         # write unit, with memory gate.
-        concat = self.write(tf.concat([read, prev_mem, next_control], axis=1))
-        gate = tf.math.sigmoid(self.gate(next_control) + 1.0)
-        next_mem = gate * prev_mem + (1 - gate) * concat
+        with tf.variable_scope("write", tf.AUTO_REUSE):
+            concat = self.write.apply(is_train, tf.concat([read, prev_mem, next_control], axis=1))
+            gate = tf.math.sigmoid(self.gate.apply(is_train, next_control) + 1.0)
+            next_mem = gate * prev_mem + (1 - gate) * concat
         # return results of cell!
         return next_control, next_mem, out
 
@@ -67,7 +69,7 @@ class MacNetwork():
 
     def __init__(self, num_mac_cells: int, hidden_dim: int):
         self.cells = num_mac_cells
-        self.mac = mac
+        self.mac = Mac(hidden_dim)
         self.hidden_dim = hidden_dim
         self.acts = []
         self.qenc = CudnnGru(hidden_dim, w_init=TruncatedNormal(stddev=0.05))
@@ -78,9 +80,9 @@ class MacNetwork():
     def apply(self, is_train, document, questions, document_mask=None, question_mask=None):
         # create question vec
         # the cudnnGRU layer reverses the sequences and stuff so we just grab last hidden states.
-        question_hidden = self.qenc(questions)[:, :, -1]
+        question_hidden = self.qenc.apply(is_train, questions, question_mask)[:, -1]
         # shared projection
-        question_vec = tf.math.tanh(self.control_proj(question_hidden))
+        question_vec = tf.math.tanh(self.control_proj.apply(is_train, question_hidden))
         # create initial memory and control states
         init_control = question_vec
         init_memory = tf.get_variable('init_memory',
@@ -91,9 +93,10 @@ class MacNetwork():
         control, memory = init_control, init_memory
         for i in range(self.cells):
             # control projection stuff
-            position_cont = self.acts[i](question_vec)
+            position_cont = self.acts[i].apply(is_train, question_vec)
             # call mac cell
-            next_control, next_mem, out = self.mac.apply(
+            with tf.variable_scope('macmsc', tf.AUTO_REUSE):
+                next_control, next_mem, out = self.mac.apply(
                 is_train, document, questions, question_vec, control,
                 position_cont, memory, document_mask, question_mask
                 )
