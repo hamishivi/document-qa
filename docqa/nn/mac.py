@@ -35,7 +35,7 @@ class Mac():
 
     def apply(self, is_train, document, question_words, question_vec, prev_cont, position_aware_cont, prev_mem, document_mask=None, question_mask=None):
         # control unit
-        with tf.variable_scope("control", tf.AUTO_REUSE):
+        with tf.variable_scope("control", reuse=tf.AUTO_REUSE):
             control = tf.concat([prev_cont, position_aware_cont], axis=1)
             control_question = self.control_lin.apply(is_train, control)
             control_question = tf.expand_dims(control_question, axis=1)
@@ -45,7 +45,7 @@ class Mac():
             attn = tf.expand_dims(ctrl_attn, axis=2)
             next_control = tf.math.reduce_sum(attn * question_words, axis=1)
         # read unit
-        with tf.variable_scope("read", tf.AUTO_REUSE):
+        with tf.variable_scope("read", reuse=tf.AUTO_REUSE):
             last_mem = self.mem_drop.apply(is_train, prev_mem)
             know = self.read_drop.apply(is_train, document)
             proj_mem = tf.expand_dims(self.mem_proj.apply(is_train, last_mem), axis=1)
@@ -57,7 +57,7 @@ class Mac():
             attn = tf.expand_dims(tf.nn.softmax(attn, 1), axis=2)
             read = tf.math.reduce_sum(attn * know, axis=1)
         # write unit, with memory gate.
-        with tf.variable_scope("write", tf.AUTO_REUSE):
+        with tf.variable_scope("write", reuse=tf.AUTO_REUSE):
             concat = self.write.apply(is_train, tf.concat([read, prev_mem, next_control], axis=1))
             gate = tf.math.sigmoid(self.gate.apply(is_train, next_control) + 1.0)
             next_mem = gate * prev_mem + (1 - gate) * concat
@@ -95,7 +95,7 @@ class MacNetwork():
             # control projection stuff
             position_cont = self.acts[i].apply(is_train, question_vec)
             # call mac cell
-            with tf.variable_scope('macmsc', tf.AUTO_REUSE):
+            with tf.variable_scope('macmsc', reuse=tf.AUTO_REUSE):
                 next_control, next_mem, out = self.mac.apply(
                 is_train, document, questions, question_vec, control,
                 position_cont, memory, document_mask, question_mask
