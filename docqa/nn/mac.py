@@ -33,19 +33,21 @@ class Mac():
         self.write = FullyConnected(hidden_dim)
         self.gate = FullyConnected(1)
 
-    def apply(self, is_train, document, question_words, question_vec, prev_cont, position_aware_cont, prev_mem, document_mask=None, question_mask=None):
+    def apply(self, is_train, document, question_words, question_vec, prev_cont, position_aware_cont, prev_mem, reuse, document_mask=None, question_mask=None):
         # control unit
-        with tf.variable_scope("control", reuse=tf.AUTO_REUSE):
+        with tf.variable_scope("control", reuse=reuse):
             control = tf.concat([prev_cont, position_aware_cont], axis=1)
             control_question = self.control_lin.apply(is_train, control)
             control_question = tf.expand_dims(control_question, axis=1)
             context_prod = control_question * question_words
-            attn_weight = tf.squeeze(self.attn.apply(is_train, context_prod), axis=-1) - VERY_NEGATIVE_NUMBER * (1 - tf.cast(question_mask,     context_prod.dtype))
+            attn_weight = tf.squeeze(self.attn.apply(is_train, context_prod), axis=-1) 
+            if question_mask is not None:
+                attn_weight += tf.expand_dims(VERY_NEGATIVE_NUMBER * (1 - tf.cast(question_mask, context_prod.dtype)), 1)
             ctrl_attn = tf.nn.softmax(attn_weight, 1)
             attn = tf.expand_dims(ctrl_attn, axis=2)
             next_control = tf.math.reduce_sum(attn * question_words, axis=1)
         # read unit
-        with tf.variable_scope("read", reuse=tf.AUTO_REUSE):
+        with tf.variable_scope("read", reuse=reuse):
             last_mem = self.mem_drop.apply(is_train, prev_mem)
             know = self.read_drop.apply(is_train, document)
             proj_mem = tf.expand_dims(self.mem_proj.apply(is_train, last_mem), axis=1)
@@ -53,11 +55,13 @@ class Mac():
             concat = self.concat2.apply(is_train, tf.nn.elu(self.concat.apply(is_train, tf.concat([proj_mem * proj_know, proj_know], axis=2))   ))
             out = self.lin.apply(is_train, self.bi.apply(is_train, concat, question_words, question_words, ctrl_attn, document_mask,    question_mask))
             attn = self.read_drop.apply(is_train, out)
-            attn = tf.squeeze(self.rattn.apply(is_train, attn), axis=-1) - VERY_NEGATIVE_NUMBER * (1 - tf.cast(document_mask, attn.dtype))
+            attn = tf.squeeze(self.rattn.apply(is_train, attn), axis=-1)
+            if document_mask is not None:
+                attn += tf.expand_dims(VERY_NEGATIVE_NUMBER * (1 - tf.cast(document_mask, attn.dtype)), 1)
             attn = tf.expand_dims(tf.nn.softmax(attn, 1), axis=2)
             read = tf.math.reduce_sum(attn * know, axis=1)
         # write unit, with memory gate.
-        with tf.variable_scope("write", reuse=tf.AUTO_REUSE):
+        with tf.variable_scope("write", reuse=reuse):
             concat = self.write.apply(is_train, tf.concat([read, prev_mem, next_control], axis=1))
             gate = tf.math.sigmoid(self.gate.apply(is_train, next_control) + 1.0)
             next_mem = gate * prev_mem + (1 - gate) * concat
@@ -89,16 +93,18 @@ class MacNetwork():
                     shape=(1, self.hidden_dim),
                     trainable=True,
                 )
+        tile = tf.constant(questions.shape[0], tf.int32)
+        init_memory = tf.tile(init_memory, tile)
         # going through the cells!
         control, memory = init_control, init_memory
         for i in range(self.cells):
             # control projection stuff
             position_cont = self.acts[i].apply(is_train, question_vec)
             # call mac cell
-            with tf.variable_scope('macmsc', reuse=tf.AUTO_REUSE):
+            with tf.variable_scope('macmsc', reuse=False if i == 0 else True):
                 next_control, next_mem, out = self.mac.apply(
                 is_train, document, questions, question_vec, control,
-                position_cont, memory, document_mask, question_mask
+                position_cont, memory, False if i == 0 else True, document_mask, question_mask
                 )
             control, memory = next_control, next_mem
         # no yes/no questions, so no need for outputting states.

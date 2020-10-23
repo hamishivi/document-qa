@@ -176,7 +176,7 @@ class CtrlBiAttention(AttentionMapper):
                 return tf.concat([x, select_query], axis=2)
 
         # select query-to-context
-        context_dist = tf.squeeze(tf.matmul(dist_matrix, mem_attn), axis=-1)
+        context_dist = tf.einsum("aik,ak->ai", dist_matrix, mem_attn)
         context_probs = tf.nn.softmax(context_dist)  # (batch, x_words)
         select_context = tf.einsum("ai,aik->ak", context_probs, x)  # (batch, x_dim)
         select_context = tf.expand_dims(select_context, 1)
