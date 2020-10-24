@@ -46,7 +46,7 @@ class Mac():
                 attn_weight += VERY_NEGATIVE_NUMBER * (1 - tf.cast(m, context_prod.dtype))
             ctrl_attn = tf.nn.softmax(attn_weight, 1)
             attn = tf.expand_dims(ctrl_attn, axis=2)
-            next_control = tf.math.reduce_sum(attn * question_words, axis=1)
+            next_control = tf.reduce_sum(attn * question_words, axis=1)
         # read unit
         with tf.variable_scope("read", reuse=reuse):
             last_mem = self.mem_drop.apply(is_train, prev_mem)
