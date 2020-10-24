@@ -8,7 +8,7 @@ from docqa.nn.ops import VERY_NEGATIVE_NUMBER, exp_mask
 from docqa.nn.attention import CtrlBiAttention
 from docqa.nn.recurrent_layers import CudnnGru
 from docqa.nn.similarity_layers import SimilarityFunction, compute_attention_mask, TriLinear
-from tensorflow.keras.initializers import TruncatedNormal
+from tensorflow.contrib.keras.python.keras.initializers import TruncatedNormal
 
 """
 A basic modified MAC Network addition, designed to slot into the best DocQA Model.
@@ -42,7 +42,8 @@ class Mac():
             context_prod = control_question * question_words
             attn_weight = tf.squeeze(self.attn.apply(is_train, context_prod), axis=-1) 
             if question_mask is not None:
-                attn_weight += tf.expand_dims(VERY_NEGATIVE_NUMBER * (1 - tf.cast(question_mask, context_prod.dtype)), 1)
+                m = tf.sequence_mask(question_mask)
+                attn_weight += VERY_NEGATIVE_NUMBER * (1 - tf.cast(m, context_prod.dtype))
             ctrl_attn = tf.nn.softmax(attn_weight, 1)
             attn = tf.expand_dims(ctrl_attn, axis=2)
             next_control = tf.math.reduce_sum(attn * question_words, axis=1)
@@ -57,13 +58,14 @@ class Mac():
             attn = self.read_drop.apply(is_train, out)
             attn = tf.squeeze(self.rattn.apply(is_train, attn), axis=-1)
             if document_mask is not None:
-                attn += tf.expand_dims(VERY_NEGATIVE_NUMBER * (1 - tf.cast(document_mask, attn.dtype)), 1)
+                m = tf.sequence_mask(document_mask)
+                attn += VERY_NEGATIVE_NUMBER * (1 - tf.cast(m, attn.dtype))
             attn = tf.expand_dims(tf.nn.softmax(attn, 1), axis=2)
-            read = tf.math.reduce_sum(attn * know, axis=1)
+            read = tf.reduce_sum(attn * know, axis=1)
         # write unit, with memory gate.
         with tf.variable_scope("write", reuse=reuse):
             concat = self.write.apply(is_train, tf.concat([read, prev_mem, next_control], axis=1))
-            gate = tf.math.sigmoid(self.gate.apply(is_train, next_control) + 1.0)
+            gate = tf.sigmoid(self.gate.apply(is_train, next_control) + 1.0)
             next_mem = gate * prev_mem + (1 - gate) * concat
         # return results of cell!
         return next_control, next_mem, out
@@ -86,15 +88,14 @@ class MacNetwork():
         # the cudnnGRU layer reverses the sequences and stuff so we just grab last hidden states.
         question_hidden = self.qenc.apply(is_train, questions, question_mask)[:, -1]
         # shared projection
-        question_vec = tf.math.tanh(self.control_proj.apply(is_train, question_hidden))
+        question_vec = tf.tanh(self.control_proj.apply(is_train, question_hidden))
         # create initial memory and control states
         init_control = question_vec
         init_memory = tf.get_variable('init_memory',
                     shape=(1, self.hidden_dim),
                     trainable=True,
                 )
-        tile = tf.constant(questions.shape[0], tf.int32)
-        init_memory = tf.tile(init_memory, tile)
+        init_memory = tf.tile(init_memory, [tf.shape(questions)[0], 1])
         # going through the cells!
         control, memory = init_control, init_memory
         for i in range(self.cells):
