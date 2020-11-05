@@ -92,7 +92,7 @@ class MacNetwork():
         # create question vec
         # the cudnnGRU layer reverses the sequences and stuff for us so we just grab last hidden states.
         question_hidden = self.qenc.apply(is_train, questions, question_mask)[:, -1]
-        question_hidden = self.question_drop(question_hidden)
+        question_hidden = self.question_drop.apply(is_train, question_hidden)
         # shared projection
         question_vec = tf.tanh(self.control_proj.apply(is_train, question_hidden))
         # create initial memory and control states
