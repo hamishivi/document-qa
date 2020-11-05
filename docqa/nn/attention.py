@@ -151,16 +151,15 @@ class BiAttention(AttentionMapper):
 class CtrlBiAttention(AttentionMapper):
     """ Control-based biattention"""
 
-    def __init__(self, sim: SimilarityFunction, q2c: bool, query_dots: bool=True):
+    def __init__(self, sim: SimilarityFunction, query_dots: bool=True):
         self.sim = sim
-        self.q2c = q2c
         self.query_dots = query_dots
 
-    def apply(self, is_train, x, keys, memories, mem_attn, x_mask=None, mem_mask=None):
+    def apply(self, is_train, x, memories, mem_attn, x_mask=None, mem_mask=None):
         x_word_dim = tf.shape(x)[1]
-        key_word_dim = tf.shape(keys)[1]
+        key_word_dim = tf.shape(memories)[1]
 
-        dist_matrix = self.sim.get_scores(x, keys)
+        dist_matrix = self.sim.get_scores(x, memories)
         joint_mask = compute_attention_mask(x_mask, mem_mask, x_word_dim, key_word_dim)
         if joint_mask is not None:
             dist_matrix += VERY_NEGATIVE_NUMBER * (1 - tf.cast(joint_mask, dist_matrix.dtype))
@@ -169,22 +168,13 @@ class CtrlBiAttention(AttentionMapper):
         # Batch matrix multiplication to get the attended vectors
         select_query = tf.matmul(query_probs, memories)  # (batch, x_words, q_dim)
 
-        if not self.q2c:
-            if self.query_dots:
-                return tf.concat([x, select_query, x * select_query], axis=2)
-            else:
-                return tf.concat([x, select_query], axis=2)
-
         # select query-to-context
         context_dist = tf.einsum("aik,ak->ai", dist_matrix, mem_attn)
         context_probs = tf.nn.softmax(context_dist)  # (batch, x_words)
         select_context = tf.einsum("ai,aik->ak", context_probs, x)  # (batch, x_dim)
         select_context = tf.expand_dims(select_context, 1)
 
-        if self.query_dots:
-            return tf.concat([x, select_query, x * select_query, x * select_context], axis=2)
-        else:
-            return tf.concat([x, select_query, x * select_context], axis=2)
+        return tf.concat([x, select_query, x * select_query, x * select_context], axis=2)
 
     def __setstate__(self, state):
         if "state" in state:

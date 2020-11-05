@@ -25,7 +25,7 @@ class Mac():
         self.kb_proj = FullyConnected(hidden_dim)
         self.concat = FullyConnected(hidden_dim)
         self.concat2 = FullyConnected(hidden_dim)
-        self.bi = CtrlBiAttention(TriLinear(), True)
+        self.bi = CtrlBiAttention(TriLinear())
         self.lin = FullyConnected(hidden_dim)
         self.read_drop = DropoutLayer(0.85)
         self.rattn = FullyConnected(1)
@@ -36,25 +36,29 @@ class Mac():
     def apply(self, is_train, document, question_words, question_vec, prev_cont, position_aware_cont, prev_mem, reuse, document_mask=None, question_mask=None):
         # control unit
         with tf.variable_scope("control", reuse=reuse):
-            control = tf.concat([prev_cont, position_aware_cont], axis=1)
-            control_question = self.control_lin.apply(is_train, control)
-            control_question = tf.expand_dims(control_question, axis=1)
-            context_prod = control_question * question_words
-            attn_weight = tf.squeeze(self.attn.apply(is_train, context_prod), axis=-1) 
+            control = tf.concat([prev_cont, position_aware_cont], axis=1) # B, 2xF
+            control_question = self.control_lin.apply(is_train, control) # B, F
+            control_question = tf.expand_dims(control_question, axis=1) # B, 1, F
+            context_prod = control_question * question_words # B, L, F
+            attn_weight = tf.squeeze(self.attn.apply(is_train, context_prod), axis=2) # B, L 
             if question_mask is not None:
                 m = tf.sequence_mask(question_mask)
                 attn_weight += VERY_NEGATIVE_NUMBER * (1 - tf.cast(m, context_prod.dtype))
-            ctrl_attn = tf.nn.softmax(attn_weight, 1)
-            attn = tf.expand_dims(ctrl_attn, axis=2)
-            next_control = tf.reduce_sum(attn * question_words, axis=1)
+            ctrl_attn = tf.nn.softmax(attn_weight, 1) # B, L
+            attn = tf.expand_dims(ctrl_attn, axis=2) # B, L, 1
+            next_control = tf.reduce_sum(attn * question_words, axis=1) # B, F
         # read unit
         with tf.variable_scope("read", reuse=reuse):
             last_mem = self.mem_drop.apply(is_train, prev_mem)
             know = self.read_drop.apply(is_train, document)
             proj_mem = tf.expand_dims(self.mem_proj.apply(is_train, last_mem), axis=1)
             proj_know = self.kb_proj.apply(is_train, know)
-            concat = self.concat2.apply(is_train, tf.nn.elu(self.concat.apply(is_train, tf.concat([proj_mem * proj_know, proj_know], axis=2))   ))
-            out = self.lin.apply(is_train, self.bi.apply(is_train, concat, question_words, question_words, ctrl_attn, document_mask,    question_mask))
+            concat = self.concat2.apply(
+                is_train,
+                tf.nn.elu(
+                    self.concat.apply(is_train, tf.concat([proj_mem * proj_know, proj_know], axis=2))
+                ))
+            out = self.lin.apply(is_train, self.bi.apply(is_train, concat, question_words, ctrl_attn, document_mask, question_mask))
             attn = self.read_drop.apply(is_train, out)
             attn = tf.squeeze(self.rattn.apply(is_train, attn), axis=-1)
             if document_mask is not None:
@@ -85,7 +89,7 @@ class MacNetwork():
 
     def apply(self, is_train, document, questions, document_mask=None, question_mask=None):
         # create question vec
-        # the cudnnGRU layer reverses the sequences and stuff so we just grab last hidden states.
+        # the cudnnGRU layer reverses the sequences and stuff for us so we just grab last hidden states.
         question_hidden = self.qenc.apply(is_train, questions, question_mask)[:, -1]
         # shared projection
         question_vec = tf.tanh(self.control_proj.apply(is_train, question_hidden))
