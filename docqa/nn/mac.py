@@ -25,7 +25,7 @@ class Mac():
         self.kb_proj = FullyConnected(hidden_dim)
         self.concat = FullyConnected(hidden_dim)
         self.concat2 = FullyConnected(hidden_dim)
-        self.bi = CtrlBiAttention(TriLinear())
+        self.bi = CtrlBiAttention(TriLinear(bias=True))
         self.lin = FullyConnected(hidden_dim)
         self.read_drop = DropoutLayer(0.85)
         self.rattn = FullyConnected(1)
