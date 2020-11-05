@@ -83,6 +83,7 @@ class MacNetwork():
         self.hidden_dim = hidden_dim
         self.acts = []
         self.qenc = CudnnGru(hidden_dim, w_init=TruncatedNormal(stddev=0.05))
+        self.question_drop = DropoutLayer(0.92)
         self.control_proj = FullyConnected(hidden_dim)
         for _ in range(num_mac_cells):
             self.acts.append(FullyConnected(hidden_dim))
@@ -91,10 +92,11 @@ class MacNetwork():
         # create question vec
         # the cudnnGRU layer reverses the sequences and stuff for us so we just grab last hidden states.
         question_hidden = self.qenc.apply(is_train, questions, question_mask)[:, -1]
+        question_hidden = self.question_drop(question_hidden)
         # shared projection
         question_vec = tf.tanh(self.control_proj.apply(is_train, question_hidden))
         # create initial memory and control states
-        init_control = question_vec
+        init_control = question_hidden
         init_memory = tf.get_variable('init_memory',
                     shape=(1, self.hidden_dim),
                     trainable=True,
