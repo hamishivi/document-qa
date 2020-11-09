@@ -82,7 +82,7 @@ class MacNetwork():
         self.mac = Mac(hidden_dim)
         self.hidden_dim = hidden_dim
         self.acts = []
-        self.qenc = CudnnGru(hidden_dim, w_init=TruncatedNormal(stddev=0.05))
+        self.qenc = CudnnGru(hidden_dim//2, w_init=TruncatedNormal(stddev=0.05))
         self.question_drop = DropoutLayer(0.92)
         self.control_proj = FullyConnected(hidden_dim)
         for _ in range(num_mac_cells):
