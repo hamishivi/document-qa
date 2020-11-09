@@ -16,7 +16,8 @@ from docqa.dataset import ClusteredBatcher
 from docqa.doc_qa_models import Attention
 from docqa.encoder import DocumentAndQuestionEncoder, DenseMultiSpanAnswerEncoder, GroupedSpanAnswerEncoder
 from docqa.evaluator import LossEvaluator, MultiParagraphSpanEvaluator, SpanEvaluator
-from docqa.nn.attention import BiAttention, AttentionEncoder, StaticAttentionSelf, MacAttention
+from docqa.nn.attention import BiAttention, AttentionEncoder, StaticAttentionSelf
+from docqa.doc_qa_models import MacAttention
 from docqa.nn.embedder import FixedWordEmbedder, CharWordEmbedder, LearnedCharEmbedder
 from docqa.nn.layers import NullBiMapper, SequenceMapperSeq, Conv1d, FullyConnected, \
     ChainBiMapper, ConcatWithProduct, ResidualLayer, VariationalDropoutLayer, MaxPool
