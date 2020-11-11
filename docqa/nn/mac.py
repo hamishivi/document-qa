@@ -54,12 +54,8 @@ class Mac(Configurable):
             know = self.read_drop.apply(is_train, document)
             proj_mem = tf.expand_dims(self.mem_proj.apply(is_train, last_mem), axis=1)
             proj_know = self.kb_proj.apply(is_train, know)
-            concat = self.concat2.apply(
-                is_train,
-                tf.nn.elu(
-                    self.concat.apply(is_train, tf.concat([proj_mem * proj_know, proj_know], axis=2))
-                ))
-            out = self.lin.apply(is_train, self.bi.apply(is_train, concat, question_words, ctrl_attn, document_mask, question_mask))
+            concat = self.concat.apply(is_train, tf.concat([proj_mem * proj_know, proj_know], axis=2))
+            out = tf.nn.elu(self.lin.apply(is_train, self.bi.apply(is_train, concat, question_words, ctrl_attn, document_mask, question_mask)))
             attn = self.read_drop.apply(is_train, out)
             attn = tf.squeeze(self.rattn.apply(is_train, attn), axis=-1)
             if document_mask is not None:
