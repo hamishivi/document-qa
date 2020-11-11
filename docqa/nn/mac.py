@@ -9,11 +9,12 @@ from docqa.nn.attention import CtrlBiAttention
 from docqa.nn.recurrent_layers import CudnnGru
 from docqa.nn.similarity_layers import SimilarityFunction, compute_attention_mask, TriLinear
 from tensorflow.contrib.keras.python.keras.initializers import TruncatedNormal
+from docqa.configurable import Configurable
 
 """
 A basic modified MAC Network addition, designed to slot into the best DocQA Model.
 """
-class Mac():
+class Mac(Configurable):
     def __init__(self, hidden_dim):
         # control
         self.control_lin = FullyConnected(hidden_dim)
@@ -74,7 +75,7 @@ class Mac():
         # return results of cell!
         return next_control, next_mem, out
 
-class MacNetwork():
+class MacNetwork(Configurable):
     """ Basic non-recurrent attention using the given SimilarityFunction """
 
     def __init__(self, num_mac_cells: int, hidden_dim: int):
